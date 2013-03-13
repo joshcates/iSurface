@@ -36,17 +36,25 @@ int main (int argc, char *argv[])
   if (argc < 3)
     {
       std::cout << "Usage:" << argv[0] 
-		<< "input_name output_prefix [display_result=1] [smoothing_sigma]" << std::endl;
+		<< "input output [isosurface_value = 0.5] [smoothing_sigma = 0.0] [display_result=1]"
+                << std::endl;
       return 1;
     }
 
-  double sigma = 0.0;
-  double isosurface_value = 0.5;
-  int display_result = 0;
+  double sigma = 0.0f;
+  double isosurface_value = 0.5f;
+  int    display_result = 1;
+
   if (argc >3)
-   {   display_result = atoi(argv[3]);  }
+    { isosurface_value = atof(argv[3]); }
   if (argc >4)
     { sigma = atof(argv[4]);  }
+  if (argc >5)
+    { display_result = atoi(argv[5]);  }
+
+  // std::cout << "isosurf val = " << isosurface_value << std::endl;
+  // std::cout << "sigma = " << sigma << std::endl;
+  // std::cout << "display_result = " << display_result << std::endl;
 
   typedef itk::Image<float, 3> image_type;
 
@@ -68,16 +76,25 @@ int main (int argc, char *argv[])
     filt->NarrowBandingOff();
     filt->SetLevelSetValue(0.0);
     filt->Update();
-    
-    itk::DiscreteGaussianImageFilter<image_type, image_type>::Pointer blur
-      = itk::DiscreteGaussianImageFilter<image_type, image_type>::New();
-    blur->SetInput(filt->GetOutput());
-    blur->SetVariance(sigma * sigma);
-    blur->SetUseImageSpacingOn();
-    
+
     itk::ImageToVTKImageFilter<image_type>::Pointer importer 
       = itk::ImageToVTKImageFilter<image_type>::New();    
-    importer->SetInput(blur->GetOutput());
+    
+    if (sigma > 0.0f)
+      {        
+        itk::DiscreteGaussianImageFilter<image_type, image_type>::Pointer blur
+          = itk::DiscreteGaussianImageFilter<image_type, image_type>::New();
+        blur->SetInput(filt->GetOutput());
+        blur->SetVariance(sigma * sigma);
+        blur->SetUseImageSpacingOn();
+        blur->Update();
+
+        importer->SetInput(blur->GetOutput());
+      }
+    else 
+      {
+        importer->SetInput(filt->GetOutput());
+      }
     importer->Update();
     
     vtkSmartPointer<vtkImageToStructuredPoints> converter 
@@ -89,15 +106,6 @@ int main (int argc, char *argv[])
     contour_filter->SetInputConnection(converter->GetOutputPort());
     contour_filter->SetValue(0, 0.0);
     contour_filter->SetNumberOfContours(1);
-    
-    // vtkSmartPointer<vtkPolyDataReader> reader = vtkSmartPointer<vtkPolyDataReader>::New();
-    // reader->SetFileName(argv[1]);
-    // reader->Update();
-    
-    // itk::ImageFileWriter<image_type>::Pointer fwriter = itk::ImageFileWriter<image_type>::New();
-    // fwriter->SetInput(filt->GetOutput());
-    // fwriter->SetFileName("tmp.nrrd");
-    // fwriter->Update();
     
     vtkSmartPointer<vtkRenderer> ren1 = vtkSmartPointer<vtkRenderer>::New();
     vtkSmartPointer<vtkRenderWindow> renwin = vtkSmartPointer<vtkRenderWindow>::New();
@@ -114,16 +122,16 @@ int main (int argc, char *argv[])
     actor->SetMapper(mapper);
     ren1->AddActor(actor);
     
-    renwin->Render();
+    renwin->Render();    
     
     vtkSmartPointer<vtkOBJExporter> writer = vtkSmartPointer<vtkOBJExporter>::New();
     writer->SetInput(renwin);
     writer->SetFilePrefix(argv[2]);
     writer->Update();
-    
+      
     if (display_result != 0)
-      { renderWindowInteractor->Start();  }
-    
+      {   renderWindowInteractor->Start();  }
+
   }
   catch (itk::ExceptionObject &e)
     {
@@ -135,6 +143,6 @@ int main (int argc, char *argv[])
       std::cerr << "Unknown error" << std::endl;
       return 2;
     }
-
+  
   return 0;
 }
