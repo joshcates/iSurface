@@ -25,44 +25,59 @@
 #include <vtkRenderWindowInteractor.h>
 
 #include <itkImageFileReader.h>
+#include <itkImageFileWriter.h>
+#include <itkAntiAliasBinaryImageFilter.h>
+#include <itkReinitializeLevelSetImageFilter.h>
+#include <itkDiscreteGaussianImageFilter.h>
 #include "itkImageToVTKImageFilter.h"
-
-#include "glyph_pipeline.h"
 
 int main (int argc, char *argv[])
 {
   if (argc < 3)
     {
       std::cout << "Usage:" << argv[0] 
-		<< "input_name glyph_file_name [glyph_radius] [isosurface_value]" << std::endl;
+		<< "input_name output_prefix [display_result=1] [smoothing_sigma]" << std::endl;
       return 1;
     }
 
-  double glyph_radius = 1.0f;
-  if (argc > 3) 
-    {
-      glyph_radius = atof(argv[3]);
-    }
-
-  double isosurface_value = 0.5f;
-  if (argc > 4)
-    {
-      isosurface_value = atof(argv[4]);
-    }
+  double sigma = 0.0;
+  double isosurface_value = 0.5;
+  int display_result = 0;
+  if (argc >3)
+   {   display_result = atoi(argv[3]);  }
+  if (argc >4)
+    { sigma = atof(argv[4]);  }
 
   typedef itk::Image<float, 3> image_type;
-
-  glyph_pipeline G;
-
 
   try {
     itk::ImageFileReader<image_type>::Pointer reader 
       = itk::ImageFileReader<image_type>::New();
     reader->SetFileName(argv[1]);
     
+    itk::AntiAliasBinaryImageFilter<image_type, image_type>::Pointer anti
+      = itk::AntiAliasBinaryImageFilter<image_type, image_type>::New();
+    anti->SetInput(reader->GetOutput());
+    anti->SetNumberOfIterations(150);
+    anti->SetMaximumRMSError(0.0);
+    anti->SetIsoSurfaceValue(isosurface_value);
+     
+    itk::ReinitializeLevelSetImageFilter<image_type>::Pointer filt
+      = itk::ReinitializeLevelSetImageFilter<image_type>::New();
+    filt->SetInput(anti->GetOutput());
+    filt->NarrowBandingOff();
+    filt->SetLevelSetValue(0.0);
+    filt->Update();
+    
+    itk::DiscreteGaussianImageFilter<image_type, image_type>::Pointer blur
+      = itk::DiscreteGaussianImageFilter<image_type, image_type>::New();
+    blur->SetInput(filt->GetOutput());
+    blur->SetVariance(sigma * sigma);
+    blur->SetUseImageSpacingOn();
+    
     itk::ImageToVTKImageFilter<image_type>::Pointer importer 
       = itk::ImageToVTKImageFilter<image_type>::New();    
-    importer->SetInput(reader->GetOutput());
+    importer->SetInput(blur->GetOutput());
     importer->Update();
     
     vtkSmartPointer<vtkImageToStructuredPoints> converter 
@@ -72,8 +87,17 @@ int main (int argc, char *argv[])
     vtkSmartPointer<vtkContourFilter> contour_filter 
       = vtkSmartPointer<vtkContourFilter>::New();
     contour_filter->SetInputConnection(converter->GetOutputPort());
-    contour_filter->SetValue(0, isosurface_value);
+    contour_filter->SetValue(0, 0.0);
     contour_filter->SetNumberOfContours(1);
+    
+    // vtkSmartPointer<vtkPolyDataReader> reader = vtkSmartPointer<vtkPolyDataReader>::New();
+    // reader->SetFileName(argv[1]);
+    // reader->Update();
+    
+    // itk::ImageFileWriter<image_type>::Pointer fwriter = itk::ImageFileWriter<image_type>::New();
+    // fwriter->SetInput(filt->GetOutput());
+    // fwriter->SetFileName("tmp.nrrd");
+    // fwriter->Update();
     
     vtkSmartPointer<vtkRenderer> ren1 = vtkSmartPointer<vtkRenderer>::New();
     vtkSmartPointer<vtkRenderWindow> renwin = vtkSmartPointer<vtkRenderWindow>::New();
@@ -91,7 +115,15 @@ int main (int argc, char *argv[])
     ren1->AddActor(actor);
     
     renwin->Render();
-    renderWindowInteractor->Start();
+    
+    vtkSmartPointer<vtkOBJExporter> writer = vtkSmartPointer<vtkOBJExporter>::New();
+    writer->SetInput(renwin);
+    writer->SetFilePrefix(argv[2]);
+    writer->Update();
+    
+    if (display_result != 0)
+      { renderWindowInteractor->Start();  }
+    
   }
   catch (itk::ExceptionObject &e)
     {
